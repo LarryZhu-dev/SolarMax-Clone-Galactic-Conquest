@@ -4,11 +4,13 @@ import { useFrame, useLoader } from '@react-three/fiber';
 import { Text, Sphere } from '@react-three/drei';
 import * as THREE from 'three';
 import { PlanetData, Unit } from '../types';
+import PlanetSwarm from './PlanetSwarm';
 
 const TEXTURES = {
-  // These are confirmed to exist in the three.js master branch
   EARTH: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_atmos_2048.jpg',
-  MOON: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/moon_1024.jpg'
+  MOON: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/moon_1024.jpg',
+  BRICK: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/brick_diffuse.jpg',
+  GRASS: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/terrain/grasslight-big.jpg'
 };
 
 interface PlanetProps {
@@ -24,12 +26,10 @@ interface PlanetProps {
 const PlanetBody: React.FC<PlanetProps & { population: number }> = ({ data, isSelected, isDragTarget, onPointerDown, onPointerUp, onPointerEnter, population }) => {
   const meshRef = useRef<THREE.Mesh>(null);
 
-  // Use Earth for player, Moon for others. 
-  // We'll tint the texture using the material color property to distinguish owners.
+  // 根据星球类型选择纹理
   const textureUrl = useMemo(() => {
-    if (data.owner === 'PLAYER') return TEXTURES.EARTH;
-    return TEXTURES.MOON;
-  }, [data.owner]);
+    return TEXTURES[data.textureType] || TEXTURES.MOON;
+  }, [data.textureType]);
 
   const texture = useLoader(THREE.TextureLoader, textureUrl);
 
@@ -39,11 +39,10 @@ const PlanetBody: React.FC<PlanetProps & { population: number }> = ({ data, isSe
 
   const textColor = data.owner === 'PLAYER' ? '#60a5fa' : data.owner === 'ENEMY' ? '#f87171' : '#94a3b8';
   
-  // Material color to tint the texture
   const materialColor = useMemo(() => {
-    if (data.owner === 'PLAYER') return '#ffffff'; // Natural Earth colors
-    if (data.owner === 'ENEMY') return '#ff9999';  // Reddish tint for "Mars" look
-    return '#aaaaaa';                             // Grey for neutral
+    if (data.owner === 'PLAYER') return '#ffffff'; // 玩家保持原色
+    if (data.owner === 'ENEMY') return '#ff9999';  // 敌人带点红色调
+    return '#aaaaaa';                             // 中立带点灰色调
   }, [data.owner]);
 
   return (
@@ -67,7 +66,10 @@ const PlanetBody: React.FC<PlanetProps & { population: number }> = ({ data, isSe
         />
       </Sphere>
 
-      {/* Selection Glow Ring */}
+      {/* SolarMax 风格的单位集群可视化 */}
+      <PlanetSwarm planet={data} population={population} />
+
+      {/* 选中/拖拽目标时的环绕光环 */}
       {(isSelected || isDragTarget) && (
         <mesh rotation={[-Math.PI / 2, 0, 0]}>
           <ringGeometry args={[data.radius * 1.3, data.radius * 1.4, 64]} />
@@ -75,11 +77,11 @@ const PlanetBody: React.FC<PlanetProps & { population: number }> = ({ data, isSe
         </mesh>
       )}
 
-      {/* Floating Population Text */}
+      {/* 悬浮的人口文字 */}
       <Suspense fallback={null}>
         <Text
-          position={[0, 0, data.radius + 1.5]}
-          fontSize={data.radius * 0.4}
+          position={[0, 0, data.radius + 2.5]}
+          fontSize={data.radius * 0.45}
           color={textColor}
           anchorX="center"
           anchorY="middle"
@@ -95,6 +97,7 @@ const PlanetBody: React.FC<PlanetProps & { population: number }> = ({ data, isSe
 };
 
 const Planet: React.FC<PlanetProps & { units: Unit[] }> = (props) => {
+  // 计算当前星球归属者的单位数量
   const population = props.units.filter(u => u.planetId === props.data.id && u.owner === props.data.owner).length;
   return (
     <Suspense fallback={null}>
