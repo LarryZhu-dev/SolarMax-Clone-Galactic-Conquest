@@ -33,7 +33,7 @@ export interface Unit {
   orbitSpeed: number;
   orbitAxis: THREE.Vector3;
   spawnTime: number; 
-  travelStartTime?: number; // New: Tracks when movement started
+  travelStartTime?: number;
   arrivalTime?: number;
 }
 
@@ -46,6 +46,12 @@ export interface Explosion {
   type: 'EXPLOSION' | 'SPAWN';
 }
 
+export interface LevelConfig {
+  id: number;
+  name: string;
+  planets: PlanetData[];
+}
+
 export interface GameState {
   planets: PlanetData[];
   units: Unit[];
@@ -53,6 +59,8 @@ export interface GameState {
   selectedPlanetId: string | null;
   dragTargetPlanetId: string | null;
   status: 'PLAYING' | 'WON' | 'LOST' | 'MENU';
+  currentLevel: number;
+  launchPercentage: number;
 }
 
 declare global {

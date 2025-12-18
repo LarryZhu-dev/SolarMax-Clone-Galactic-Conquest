@@ -3,15 +3,43 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
 import * as THREE from 'three';
-import { PlanetData, Unit, GameState, Owner } from './types';
+import { PlanetData, Unit, GameState, Owner, LevelConfig } from './types';
 import SolarSystem from './components/SolarSystem';
 import HUD from './components/HUD';
 
-const INITIAL_PLANETS: PlanetData[] = [
-  { id: '1', position: new THREE.Vector3(-15, 0, 0), radius: 2.8, owner: 'PLAYER', capacity: 120, color: '#3b82f6', productionRate: 4.5, textureType: 'EARTH' },
-  { id: '2', position: new THREE.Vector3(15, 0, 0), radius: 2.8, owner: 'ENEMY', capacity: 120, color: '#ef4444', productionRate: 4.5, textureType: 'MOON' },
-  { id: '3', position: new THREE.Vector3(0, 10, 0), radius: 2.0, owner: 'NEUTRAL', capacity: 80, color: '#94a3b8', productionRate: 2.0, textureType: 'BRICK' },
-  { id: '4', position: new THREE.Vector3(0, -10, 0), radius: 2.0, owner: 'NEUTRAL', capacity: 80, color: '#94a3b8', productionRate: 2.0, textureType: 'GRASS' },
+const LEVELS: LevelConfig[] = [
+  {
+    id: 1,
+    name: "Sector Alpha: The Duel",
+    planets: [
+      { id: '1-1', position: new THREE.Vector3(-15, 0, 0), radius: 2.8, owner: 'PLAYER', capacity: 100, color: '#3b82f6', productionRate: 5.0, textureType: 'EARTH' },
+      { id: '1-2', position: new THREE.Vector3(15, 0, 0), radius: 2.8, owner: 'ENEMY', capacity: 100, color: '#ef4444', productionRate: 5.0, textureType: 'MOON' },
+      { id: '1-3', position: new THREE.Vector3(0, 8, 0), radius: 1.8, owner: 'NEUTRAL', capacity: 60, color: '#94a3b8', productionRate: 2.0, textureType: 'BRICK' },
+      { id: '1-4', position: new THREE.Vector3(0, -8, 0), radius: 1.8, owner: 'NEUTRAL', capacity: 60, color: '#94a3b8', productionRate: 2.0, textureType: 'GRASS' },
+    ]
+  },
+  {
+    id: 2,
+    name: "Sector Beta: Triangle Shift",
+    planets: [
+      { id: '2-1', position: new THREE.Vector3(-18, -10, 0), radius: 2.5, owner: 'PLAYER', capacity: 120, color: '#3b82f6', productionRate: 4.0, textureType: 'EARTH' },
+      { id: '2-2', position: new THREE.Vector3(18, -10, 0), radius: 2.5, owner: 'ENEMY', capacity: 120, color: '#ef4444', productionRate: 4.0, textureType: 'MOON' },
+      { id: '2-3', position: new THREE.Vector3(0, 15, 0), radius: 3.0, owner: 'NEUTRAL', capacity: 150, color: '#94a3b8', productionRate: 6.0, textureType: 'BRICK' },
+      { id: '2-4', position: new THREE.Vector3(-8, 2, 0), radius: 1.5, owner: 'NEUTRAL', capacity: 40, color: '#94a3b8', productionRate: 1.5, textureType: 'GRASS' },
+      { id: '2-5', position: new THREE.Vector3(8, 2, 0), radius: 1.5, owner: 'NEUTRAL', capacity: 40, color: '#94a3b8', productionRate: 1.5, textureType: 'GRASS' },
+    ]
+  },
+  {
+    id: 3,
+    name: "Sector Gamma: Galactic Cross",
+    planets: [
+      { id: '3-1', position: new THREE.Vector3(0, 0, 0), radius: 4.0, owner: 'NEUTRAL', capacity: 200, color: '#94a3b8', productionRate: 8.0, textureType: 'BRICK' },
+      { id: '3-2', position: new THREE.Vector3(-22, 0, 0), radius: 2.2, owner: 'PLAYER', capacity: 80, color: '#3b82f6', productionRate: 4.0, textureType: 'EARTH' },
+      { id: '3-3', position: new THREE.Vector3(22, 0, 0), radius: 2.2, owner: 'ENEMY', capacity: 80, color: '#ef4444', productionRate: 4.0, textureType: 'MOON' },
+      { id: '3-4', position: new THREE.Vector3(0, 18, 0), radius: 2.2, owner: 'ENEMY', capacity: 80, color: '#ef4444', productionRate: 4.0, textureType: 'MOON' },
+      { id: '3-5', position: new THREE.Vector3(0, -18, 0), radius: 2.2, owner: 'PLAYER', capacity: 80, color: '#3b82f6', productionRate: 4.0, textureType: 'EARTH' },
+    ]
+  }
 ];
 
 const COMBAT_RADIUS = 0.6;
@@ -35,13 +63,11 @@ const createUnit = (planet: PlanetData, owner: Owner): Unit => {
     position: spawnPos,
     targetPlanetId: null,
     planetId: planet.id,
-    // Reduced speed for slower, more majestic travel (was 7.5-10.0)
     speed: 3.2 + Math.random() * 1.8, 
     currentVelocity: 0,
     state: 'ORBITING',
     orbitAngle: orbitAngle,
     orbitRadius: orbitRadius,
-    // Significantly reduced orbit speed (was 0.6-0.9)
     orbitSpeed: (0.15 + Math.random() * 0.2) * (owner === 'PLAYER' ? 1 : -1),
     orbitAxis: orbitAxis,
     spawnTime: Date.now(),
@@ -50,31 +76,38 @@ const createUnit = (planet: PlanetData, owner: Owner): Unit => {
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState>({
-    planets: INITIAL_PLANETS,
+    planets: LEVELS[0].planets,
     units: [],
     explosions: [],
     selectedPlanetId: null,
     dragTargetPlanetId: null,
     status: 'MENU',
+    currentLevel: 0,
+    launchPercentage: 0.5,
   });
 
   const lastUpdateRef = useRef<number>(Date.now());
+  const lastAiTickRef = useRef<number>(0);
   const productionAccumulatorRef = useRef<Record<string, number>>({});
 
-  const startGame = () => {
+  const startLevel = (levelIdx: number) => {
+    const config = LEVELS[levelIdx % LEVELS.length];
     const initialUnits: Unit[] = [];
-    INITIAL_PLANETS.forEach(p => {
+    config.planets.forEach(p => {
       const startPop = p.owner === 'NEUTRAL' ? 15 : 40;
       for (let i = 0; i < startPop; i++) initialUnits.push(createUnit(p, p.owner));
     });
-    setGameState({
-      planets: INITIAL_PLANETS.map(p => ({ ...p })),
+    
+    setGameState(prev => ({
+      ...prev,
+      planets: config.planets.map(p => ({ ...p })),
       units: initialUnits,
       explosions: [],
       selectedPlanetId: null,
       dragTargetPlanetId: null,
       status: 'PLAYING',
-    });
+      currentLevel: levelIdx,
+    }));
   };
 
   const spawnVisualEffect = (pos: THREE.Vector3, color: string, type: 'EXPLOSION' | 'SPAWN') => {
@@ -91,11 +124,11 @@ export default function App() {
     }));
   };
 
-  const sendUnits = useCallback((sourceId: string, targetId: string, owner: Owner) => {
+  const sendUnits = useCallback((sourceId: string, targetId: string, owner: Owner, percentage: number) => {
     const now = Date.now();
     setGameState(prev => {
       const sourceUnits = prev.units.filter(u => u.planetId === sourceId && u.owner === owner && u.state === 'ORBITING');
-      const countToSend = Math.floor(sourceUnits.length * 0.5);
+      const countToSend = Math.floor(sourceUnits.length * percentage);
       if (countToSend <= 0) return prev;
       
       const shipIds = new Set(sourceUnits.slice(0, countToSend).map(u => u.id));
@@ -139,12 +172,45 @@ export default function App() {
     });
   }, []);
 
+  const runAiLogic = (state: GameState) => {
+    const now = Date.now();
+    if (now - lastAiTickRef.current < 4000) return; // AI acts every 4 seconds
+    lastAiTickRef.current = now;
+
+    const enemyPlanets = state.planets.filter(p => p.owner === 'ENEMY');
+    if (enemyPlanets.length === 0) return;
+
+    // Pick a random enemy planet to launch from
+    const source = enemyPlanets[Math.floor(Math.random() * enemyPlanets.length)];
+    const sourceUnits = state.units.filter(u => u.planetId === source.id && u.owner === 'ENEMY');
+    
+    if (sourceUnits.length < 15) return;
+
+    // Target selection: prefer neutrals, then player
+    const neutrals = state.planets.filter(p => p.owner === 'NEUTRAL');
+    const playerPlanets = state.planets.filter(p => p.owner === 'PLAYER');
+    
+    let target = null;
+    if (neutrals.length > 0) {
+      target = neutrals[Math.floor(Math.random() * neutrals.length)];
+    } else if (playerPlanets.length > 0) {
+      target = playerPlanets[Math.floor(Math.random() * playerPlanets.length)];
+    }
+
+    if (target) {
+      sendUnits(source.id, target.id, 'ENEMY', 0.6); // AI sends 60% of fleet
+    }
+  };
+
   useEffect(() => {
     if (gameState.status !== 'PLAYING') return;
     const interval = setInterval(() => {
       const now = Date.now();
       const dt = (now - lastUpdateRef.current) / 1000;
       lastUpdateRef.current = now;
+
+      // AI Loop
+      runAiLogic(gameState);
 
       setGameState(prev => {
         const toRemove = new Set<string>();
@@ -170,7 +236,7 @@ export default function App() {
           }
         });
 
-        // 2. Updated Movement Logic
+        // 2. Movement Logic
         const updatedUnits: Unit[] = prev.units.map(unit => {
           const u = { ...unit, position: unit.position.clone() };
           const oldPos = u.position.clone();
@@ -182,9 +248,7 @@ export default function App() {
             }
 
             const orbitQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), u.orbitAxis);
-            const hashId = u.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-            const arrivalOrbitRadius = target.radius + 1.2 + (hashId % 100) / 100 * 0.6;
-            
+            const arrivalOrbitRadius = target.radius + 1.2;
             const localArrivalPos = new THREE.Vector3(
               Math.cos(u.targetOrbitAngle || 0) * arrivalOrbitRadius,
               0,
@@ -198,7 +262,6 @@ export default function App() {
             
             const easedT = easeInOutCubic(linearProgress);
             u.position.lerpVectors(u.startPosition, worldTargetPos, easedT);
-
             u.currentVelocity = u.position.distanceTo(oldPos) / dt;
 
             if (linearProgress >= 1.0) {
@@ -268,18 +331,20 @@ export default function App() {
           return p;
         });
 
+        const playerActive = nextPlanets.some(p => p.owner === 'PLAYER') || updatedUnits.some(u => u.owner === 'PLAYER');
+        const enemyActive = nextPlanets.some(p => p.owner === 'ENEMY') || updatedUnits.some(u => u.owner === 'ENEMY');
+
         return { 
           ...prev, 
           planets: nextPlanets, 
           units: [...updatedUnits.filter(u => !toRemove.has(u.id)), ...newProducedUnits], 
           explosions: prev.explosions.filter(e => now - e.startTime < e.duration), 
-          status: nextPlanets.filter(p => p.owner === 'PLAYER').length === 0 ? 'LOST' : 
-                  nextPlanets.filter(p => p.owner === 'ENEMY').length === 0 ? 'WON' : prev.status
+          status: !playerActive ? 'LOST' : !enemyActive ? 'WON' : prev.status
         };
       });
     }, 16);
     return () => clearInterval(interval);
-  }, [gameState.status]);
+  }, [gameState.status, gameState.currentLevel]);
 
   return (
     <div className="relative w-screen h-screen bg-black overflow-hidden">
@@ -289,15 +354,20 @@ export default function App() {
           onPlanetDown={(id) => setGameState(prev => ({ ...prev, selectedPlanetId: id }))}
           onPlanetUp={(id) => {
             if (gameState.selectedPlanetId && gameState.selectedPlanetId !== id) {
-              sendUnits(gameState.selectedPlanetId, id, 'PLAYER');
+              sendUnits(gameState.selectedPlanetId, id, 'PLAYER', gameState.launchPercentage);
             }
             setGameState(prev => ({ ...prev, selectedPlanetId: null, dragTargetPlanetId: null }));
           }}
           onPlanetEnter={(id) => setGameState(prev => ({ ...prev, dragTargetPlanetId: id }))}
         />
-        <OrbitControls enableDamping enableRotate={false} minDistance={20} maxDistance={120} />
+        <OrbitControls enableDamping enableRotate={false} minDistance={20} maxDistance={150} />
       </Canvas>
-      <HUD gameState={gameState} onStart={startGame} />
+      <HUD 
+        gameState={gameState} 
+        onStart={() => startLevel(0)} 
+        onNextLevel={() => startLevel(gameState.currentLevel + 1)}
+        onSetLaunchPercentage={(p) => setGameState(prev => ({ ...prev, launchPercentage: p }))}
+      />
     </div>
   );
 }
