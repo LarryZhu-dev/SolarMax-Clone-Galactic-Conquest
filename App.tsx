@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -28,17 +27,6 @@ const LEVELS: LevelConfig[] = [
       { id: '2-4', position: new THREE.Vector3(-8, 2, 0), radius: 1.5, owner: 'NEUTRAL', capacity: 40, color: '#94a3b8', productionRate: 1.5, textureType: 'GRASS' },
       { id: '2-5', position: new THREE.Vector3(8, 2, 0), radius: 1.5, owner: 'NEUTRAL', capacity: 40, color: '#94a3b8', productionRate: 1.5, textureType: 'GRASS' },
     ]
-  },
-  {
-    id: 3,
-    name: "Sector Gamma: Galactic Cross",
-    planets: [
-      { id: '3-1', position: new THREE.Vector3(0, 0, 0), radius: 4.0, owner: 'NEUTRAL', capacity: 200, color: '#94a3b8', productionRate: 8.0, textureType: 'BRICK' },
-      { id: '3-2', position: new THREE.Vector3(-22, 0, 0), radius: 2.2, owner: 'PLAYER', capacity: 80, color: '#3b82f6', productionRate: 4.0, textureType: 'EARTH' },
-      { id: '3-3', position: new THREE.Vector3(22, 0, 0), radius: 2.2, owner: 'ENEMY', capacity: 80, color: '#ef4444', productionRate: 4.0, textureType: 'MOON' },
-      { id: '3-4', position: new THREE.Vector3(0, 18, 0), radius: 2.2, owner: 'ENEMY', capacity: 80, color: '#ef4444', productionRate: 4.0, textureType: 'MOON' },
-      { id: '3-5', position: new THREE.Vector3(0, -18, 0), radius: 2.2, owner: 'PLAYER', capacity: 80, color: '#3b82f6', productionRate: 4.0, textureType: 'EARTH' },
-    ]
   }
 ];
 
@@ -52,7 +40,6 @@ const createUnit = (planet: PlanetData, owner: Owner): Unit => {
   const orbitAxis = new THREE.Vector3(0, 1, 0).applyAxisAngle(new THREE.Vector3(1, 0, 0), (Math.random() - 0.5) * 0.4).normalize();
   const orbitAngle = Math.random() * Math.PI * 2;
   const orbitRadius = planet.radius + 1.2 + Math.random() * 0.6;
-  
   const orbitQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), orbitAxis);
   const localPos = new THREE.Vector3(Math.cos(orbitAngle) * orbitRadius, 0, Math.sin(orbitAngle) * orbitRadius).applyQuaternion(orbitQuat);
   const spawnPos = planet.position.clone().add(localPos);
@@ -141,15 +128,12 @@ export default function App() {
           if (shipIds.has(u.id)) {
             const randomTargetAngle = Math.random() * Math.PI * 2;
             const orbitQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), u.orbitAxis);
-            const hashId = u.id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-            const arrivalOrbitRadius = targetPlanet.radius + 1.2 + (hashId % 100) / 100 * 0.6;
-            
+            const arrivalOrbitRadius = targetPlanet.radius + 1.2;
             const localArrivalPos = new THREE.Vector3(
               Math.cos(randomTargetAngle) * arrivalOrbitRadius,
               0,
               Math.sin(randomTargetAngle) * arrivalOrbitRadius
             ).applyQuaternion(orbitQuat);
-            
             const finalTargetPos = targetPlanet.position.clone().add(localArrivalPos);
 
             return { 
@@ -161,7 +145,6 @@ export default function App() {
               totalDistance: u.position.distanceTo(finalTargetPos),
               planetId: null, 
               travelStartTime: now,
-              arrivalTime: undefined,
               currentVelocity: 0
             };
           }
@@ -174,31 +157,21 @@ export default function App() {
 
   const runAiLogic = (state: GameState) => {
     const now = Date.now();
-    if (now - lastAiTickRef.current < 4000) return; // AI acts every 4 seconds
+    if (now - lastAiTickRef.current < 4000) return; 
     lastAiTickRef.current = now;
 
     const enemyPlanets = state.planets.filter(p => p.owner === 'ENEMY');
     if (enemyPlanets.length === 0) return;
 
-    // Pick a random enemy planet to launch from
     const source = enemyPlanets[Math.floor(Math.random() * enemyPlanets.length)];
-    const sourceUnits = state.units.filter(u => u.planetId === source.id && u.owner === 'ENEMY');
+    const sourceUnitsCount = state.units.filter(u => u.planetId === source.id && u.owner === 'ENEMY').length;
     
-    if (sourceUnits.length < 15) return;
+    if (sourceUnitsCount < 15) return;
 
-    // Target selection: prefer neutrals, then player
-    const neutrals = state.planets.filter(p => p.owner === 'NEUTRAL');
-    const playerPlanets = state.planets.filter(p => p.owner === 'PLAYER');
-    
-    let target = null;
-    if (neutrals.length > 0) {
-      target = neutrals[Math.floor(Math.random() * neutrals.length)];
-    } else if (playerPlanets.length > 0) {
-      target = playerPlanets[Math.floor(Math.random() * playerPlanets.length)];
-    }
-
-    if (target) {
-      sendUnits(source.id, target.id, 'ENEMY', 0.6); // AI sends 60% of fleet
+    const targetCandidates = state.planets.filter(p => p.owner !== 'ENEMY');
+    if (targetCandidates.length > 0) {
+      const target = targetCandidates[Math.floor(Math.random() * targetCandidates.length)];
+      sendUnits(source.id, target.id, 'ENEMY', 0.6);
     }
   };
 
@@ -209,14 +182,12 @@ export default function App() {
       const dt = (now - lastUpdateRef.current) / 1000;
       lastUpdateRef.current = now;
 
-      // AI Loop
       runAiLogic(gameState);
 
       setGameState(prev => {
         const toRemove = new Set<string>();
         const newProducedUnits: Unit[] = [];
 
-        // 1. Production
         prev.planets.forEach(p => {
           if (p.owner === 'NEUTRAL') return;
           const currentPop = prev.units.filter(u => u.planetId === p.id && u.owner === p.owner).length;
@@ -236,41 +207,33 @@ export default function App() {
           }
         });
 
-        // 2. Movement Logic
         const updatedUnits: Unit[] = prev.units.map(unit => {
           const u = { ...unit, position: unit.position.clone() };
-          const oldPos = u.position.clone();
-
           if (u.state === 'TRAVELING') {
             const target = prev.planets.find(p => p.id === u.targetPlanetId);
             if (!target || !u.startPosition || !u.totalDistance || !u.travelStartTime) {
-               return { ...u, state: 'ORBITING' as const, planetId: prev.planets[0].id };
+              return { ...u, state: 'ORBITING', planetId: prev.planets[0].id };
             }
-
             const orbitQuat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), u.orbitAxis);
-            const arrivalOrbitRadius = target.radius + 1.2;
             const localArrivalPos = new THREE.Vector3(
-              Math.cos(u.targetOrbitAngle || 0) * arrivalOrbitRadius,
+              Math.cos(u.targetOrbitAngle || 0) * u.orbitRadius,
               0,
-              Math.sin(u.targetOrbitAngle || 0) * arrivalOrbitRadius
+              Math.sin(u.targetOrbitAngle || 0) * u.orbitRadius
             ).applyQuaternion(orbitQuat);
             const worldTargetPos = target.position.clone().add(localArrivalPos);
-
             const travelDuration = u.totalDistance / u.speed;
             const elapsed = (now - u.travelStartTime) / 1000;
             const linearProgress = Math.min(1.0, elapsed / travelDuration);
-            
             const easedT = easeInOutCubic(linearProgress);
+            const oldPos = u.position.clone();
             u.position.lerpVectors(u.startPosition, worldTargetPos, easedT);
             u.currentVelocity = u.position.distanceTo(oldPos) / dt;
 
             if (linearProgress >= 1.0) {
-              u.state = 'ORBITING' as const;
+              u.state = 'ORBITING';
               u.planetId = target.id;
               u.targetPlanetId = null;
               u.orbitAngle = u.targetOrbitAngle || 0;
-              u.orbitRadius = arrivalOrbitRadius;
-              u.arrivalTime = now;
               u.currentVelocity = 0;
             }
           } else {
@@ -282,13 +245,12 @@ export default function App() {
                 Math.cos(u.orbitAngle) * u.orbitRadius, 0, Math.sin(u.orbitAngle) * u.orbitRadius
               ).applyQuaternion(orbitQuat);
               u.position.copy(planet.position.clone().add(localOrbitPos));
-              u.currentVelocity = 0; 
+              u.currentVelocity = 0;
             }
           }
           return u;
         });
 
-        // 3. Combat
         const groups: Record<string, Unit[]> = {};
         updatedUnits.forEach(u => {
           const key = u.planetId || 'traveling';
@@ -296,7 +258,7 @@ export default function App() {
           groups[key].push(u);
         });
 
-        Object.entries(groups).forEach(([key, groupUnits]) => {
+        Object.entries(groups).forEach(([_, groupUnits]) => {
           for (let i = 0; i < groupUnits.length; i++) {
             const uA = groupUnits[i];
             if (toRemove.has(uA.id)) continue;
@@ -304,7 +266,8 @@ export default function App() {
               const uB = groupUnits[j];
               if (toRemove.has(uB.id) || uA.owner === uB.owner) continue;
               if (uA.position.distanceTo(uB.position) < COMBAT_RADIUS) {
-                toRemove.add(uA.id); toRemove.add(uB.id);
+                toRemove.add(uA.id);
+                toRemove.add(uB.id);
                 spawnVisualEffect(uA.position, uA.owner === 'PLAYER' ? '#3b82f6' : '#ef4444', 'EXPLOSION');
                 break;
               }
@@ -319,9 +282,9 @@ export default function App() {
           if ((p.owner === 'NEUTRAL' || residents.length === 0) && invaders.length > captureReq) {
             const counts: Record<string, number> = {};
             invaders.forEach(inv => counts[inv.owner] = (counts[inv.owner] || 0) + 1);
-            const winner = Object.entries(counts).sort((a,b) => b[1] - a[1])[0];
-            if (winner) {
-              const newOwner = winner[0] as Owner;
+            const winnerArr = Object.entries(counts).sort((a,b) => b[1] - a[1]);
+            if (winnerArr.length > 0) {
+              const newOwner = winnerArr[0][0] as Owner;
               updatedUnits.forEach(unit => { 
                 if (unit.planetId === p.id && !toRemove.has(unit.id)) unit.owner = newOwner; 
               });
@@ -344,10 +307,12 @@ export default function App() {
       });
     }, 16);
     return () => clearInterval(interval);
-  }, [gameState.status, gameState.currentLevel]);
+  }, [gameState.status]);
 
   return (
-    <div className="relative w-screen h-screen bg-black overflow-hidden">
+    <div className="relative w-screen h-screen bg-black overflow-hidden" onPointerUp={() => {
+       if (gameState.selectedPlanetId) setGameState(prev => ({ ...prev, selectedPlanetId: null, dragTargetPlanetId: null }));
+    }}>
       <Canvas camera={{ position: [0, 0, 50], fov: 40 }} dpr={[1, 2]}>
         <SolarSystem 
           gameState={gameState}

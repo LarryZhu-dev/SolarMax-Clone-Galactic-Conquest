@@ -1,4 +1,3 @@
-
 import React, { useRef, Suspense, useMemo } from 'react';
 import { useFrame, useLoader } from '@react-three/fiber';
 import { Text, Sphere } from '@react-three/drei';
@@ -6,7 +5,6 @@ import * as THREE from 'three';
 import { PlanetData, Unit } from '../types';
 
 const TEXTURES = {
-  // These are confirmed to exist in the three.js master branch
   EARTH: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/earth_atmos_2048.jpg',
   MOON: 'https://cdn.jsdelivr.net/gh/mrdoob/three.js@master/examples/textures/planets/moon_1024.jpg'
 };
@@ -18,14 +16,14 @@ interface PlanetProps {
   onPointerDown: () => void;
   onPointerUp: () => void;
   onPointerEnter: () => void;
-  population?: number;
+  playerCount: number;
+  enemyCount: number;
 }
 
-const PlanetBody: React.FC<PlanetProps & { population: number }> = ({ data, isSelected, isDragTarget, onPointerDown, onPointerUp, onPointerEnter, population }) => {
+const PlanetBody: React.FC<PlanetProps> = ({ data, isSelected, isDragTarget, onPointerDown, onPointerUp, onPointerEnter, playerCount, enemyCount }) => {
   const meshRef = useRef<THREE.Mesh>(null);
+  const ringRef = useRef<THREE.Mesh>(null);
 
-  // Use Earth for player, Moon for others. 
-  // We'll tint the texture using the material color property to distinguish owners.
   const textureUrl = useMemo(() => {
     if (data.owner === 'PLAYER') return TEXTURES.EARTH;
     return TEXTURES.MOON;
@@ -33,18 +31,23 @@ const PlanetBody: React.FC<PlanetProps & { population: number }> = ({ data, isSe
 
   const texture = useLoader(THREE.TextureLoader, textureUrl);
 
-  useFrame(() => {
-    if (meshRef.current) meshRef.current.rotation.y += 0.0008;
+  useFrame((state) => {
+    if (meshRef.current) {
+      meshRef.current.rotation.y += 0.0008;
+    }
+    if (ringRef.current) {
+      ringRef.current.quaternion.copy(state.camera.quaternion);
+    }
   });
 
-  const textColor = data.owner === 'PLAYER' ? '#60a5fa' : data.owner === 'ENEMY' ? '#f87171' : '#94a3b8';
-  
-  // Material color to tint the texture
   const materialColor = useMemo(() => {
-    if (data.owner === 'PLAYER') return '#ffffff'; // Natural Earth colors
-    if (data.owner === 'ENEMY') return '#ff9999';  // Reddish tint for "Mars" look
-    return '#aaaaaa';                             // Grey for neutral
+    if (data.owner === 'PLAYER') return '#ffffff';
+    if (data.owner === 'ENEMY') return '#ff9999';
+    return '#aaaaaa';
   }, [data.owner]);
+
+  const showPlayerCount = playerCount > 0 || data.owner === 'PLAYER';
+  const showEnemyCount = enemyCount > 0 || data.owner === 'ENEMY';
 
   return (
     <group position={data.position}>
@@ -62,43 +65,71 @@ const PlanetBody: React.FC<PlanetProps & { population: number }> = ({ data, isSe
           color={materialColor}
           roughness={0.7}
           metalness={0.2}
-          emissive={data.color}
-          emissiveIntensity={isSelected ? 0.25 : 0.05}
+          emissive={new THREE.Color(data.color)}
+          emissiveIntensity={isSelected ? 0.3 : 0.05}
         />
       </Sphere>
 
-      {/* Selection Glow Ring */}
       {(isSelected || isDragTarget) && (
-        <mesh rotation={[-Math.PI / 2, 0, 0]}>
+        <mesh ref={ringRef}>
           <ringGeometry args={[data.radius * 1.3, data.radius * 1.4, 64]} />
-          <meshBasicMaterial color="#ffffff" transparent opacity={0.4} side={THREE.DoubleSide} />
+          <meshBasicMaterial 
+            color={isSelected ? "#60a5fa" : "#ffffff"} 
+            transparent 
+            opacity={0.6} 
+            side={THREE.DoubleSide} 
+          />
         </mesh>
       )}
 
-      {/* Floating Population Text */}
       <Suspense fallback={null}>
-        <Text
-          position={[0, 0, data.radius + 1.5]}
-          fontSize={data.radius * 0.4}
-          color={textColor}
-          anchorX="center"
-          anchorY="middle"
-          outlineWidth={0.06}
-          outlineColor="#000"
-          font="https://fonts.gstatic.com/s/pressstart2p/v14/e3t4euO8T-267oIAQAu6jDQyK3nivA.woff"
-        >
-          {population}
-        </Text>
+        <group position={[0, data.radius + 1.2, 0]}>
+          {showPlayerCount && (
+            <Text
+              position={showEnemyCount ? [-data.radius * 0.45, 0, 0] : [0, 0, 0]}
+              fontSize={data.radius * 0.35}
+              color="#60a5fa"
+              anchorX="center"
+              anchorY="middle"
+              outlineWidth={0.04}
+              outlineColor="#000000"
+            >
+              {playerCount}
+            </Text>
+          )}
+          {showEnemyCount && (
+            <Text
+              position={showPlayerCount ? [data.radius * 0.45, 0, 0] : [0, 0, 0]}
+              fontSize={data.radius * 0.35}
+              color="#f87171"
+              anchorX="center"
+              anchorY="middle"
+              outlineWidth={0.04}
+              outlineColor="#000000"
+            >
+              {enemyCount}
+            </Text>
+          )}
+        </group>
       </Suspense>
     </group>
   );
 };
 
-const Planet: React.FC<PlanetProps & { units: Unit[] }> = (props) => {
-  const population = props.units.filter(u => u.planetId === props.data.id && u.owner === props.data.owner).length;
+const Planet: React.FC<Omit<PlanetProps, 'playerCount' | 'enemyCount'> & { units: Unit[] }> = (props) => {
+  const pCount = useMemo(() => 
+    props.units.filter(u => u.planetId === props.data.id && u.owner === 'PLAYER').length,
+    [props.units, props.data.id]
+  );
+  
+  const eCount = useMemo(() => 
+    props.units.filter(u => u.planetId === props.data.id && u.owner === 'ENEMY').length,
+    [props.units, props.data.id]
+  );
+  
   return (
     <Suspense fallback={null}>
-      <PlanetBody {...props} population={population} />
+      <PlanetBody {...props} playerCount={pCount} enemyCount={eCount} />
     </Suspense>
   );
 };
