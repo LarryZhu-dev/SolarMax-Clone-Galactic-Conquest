@@ -1,3 +1,4 @@
+
 import React, { useRef, useMemo } from 'react';
 import * as THREE from 'three';
 import { useFrame, useThree } from '@react-three/fiber';
@@ -24,6 +25,9 @@ const SolarSystem: React.FC<SolarSystemProps> = ({ gameState, onPlanetDown, onPl
     geo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
     return geo;
   }, []);
+
+  // Fix: Memoize the Line object to bypass JSX type collision with SVG 'line' element and ensure stable reference
+  const dragLineObject = useMemo(() => new THREE.Line(dragLineGeometry), [dragLineGeometry]);
 
   const backgroundShader = useMemo(() => ({
     uniforms: {
@@ -111,10 +115,10 @@ const SolarSystem: React.FC<SolarSystemProps> = ({ gameState, onPlanetDown, onPl
         />
       </mesh>
 
-      {/* Fix: Cast ref to any to resolve type collision with SVG 'line' element which standard React types default to in JSX */}
-      <line ref={dragLineRef as any} geometry={dragLineGeometry}>
+      {/* Fix: Using 'primitive' object instead of 'line' tag to resolve ambiguity with SVG line types in React */}
+      <primitive object={dragLineObject} ref={dragLineRef}>
         <lineBasicMaterial color="#3b82f6" transparent opacity={0.6} linewidth={2} />
-      </line>
+      </primitive>
 
       {gameState.planets.map(planet => (
         <Planet 

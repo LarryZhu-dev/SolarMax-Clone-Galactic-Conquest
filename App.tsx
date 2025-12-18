@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
@@ -30,7 +31,7 @@ const LEVELS: LevelConfig[] = [
   }
 ];
 
-const COMBAT_RADIUS = 0.6;
+const COMBAT_CHANCE_PER_SEC = 0.3; // 30% probability per second to kill an enemy
 
 const easeInOutCubic = (t: number): number => {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
@@ -76,6 +77,7 @@ export default function App() {
   const lastUpdateRef = useRef<number>(Date.now());
   const lastAiTickRef = useRef<number>(0);
   const productionAccumulatorRef = useRef<Record<string, number>>({});
+  const combatAccumulatorRef = useRef<Record<string, number>>({});
 
   const startLevel = (levelIdx: number) => {
     const config = LEVELS[levelIdx % LEVELS.length];
@@ -85,6 +87,9 @@ export default function App() {
       for (let i = 0; i < startPop; i++) initialUnits.push(createUnit(p, p.owner));
     });
     
+    productionAccumulatorRef.current = {};
+    combatAccumulatorRef.current = {};
+
     setGameState(prev => ({
       ...prev,
       planets: config.planets.map(p => ({ ...p })),
@@ -188,6 +193,7 @@ export default function App() {
         const toRemove = new Set<string>();
         const newProducedUnits: Unit[] = [];
 
+        // 1. Production
         prev.planets.forEach(p => {
           if (p.owner === 'NEUTRAL') return;
           const currentPop = prev.units.filter(u => u.planetId === p.id && u.owner === p.owner).length;
@@ -207,6 +213,7 @@ export default function App() {
           }
         });
 
+        // 2. Unit Movement and State Update
         const updatedUnits: Unit[] = prev.units.map(unit => {
           const u = { ...unit, position: unit.position.clone() };
           if (u.state === 'TRAVELING') {
@@ -251,42 +258,60 @@ export default function App() {
           return u;
         });
 
-        const groups: Record<string, Unit[]> = {};
-        updatedUnits.forEach(u => {
-          const key = u.planetId || 'traveling';
-          if (!groups[key]) groups[key] = [];
-          groups[key].push(u);
-        });
-
-        Object.entries(groups).forEach(([_, groupUnits]) => {
-          for (let i = 0; i < groupUnits.length; i++) {
-            const uA = groupUnits[i];
-            if (toRemove.has(uA.id)) continue;
-            for (let j = i + 1; j < groupUnits.length; j++) {
-              const uB = groupUnits[j];
-              if (toRemove.has(uB.id) || uA.owner === uB.owner) continue;
-              if (uA.position.distanceTo(uB.position) < COMBAT_RADIUS) {
-                toRemove.add(uA.id);
-                toRemove.add(uB.id);
-                spawnVisualEffect(uA.position, uA.owner === 'PLAYER' ? '#3b82f6' : '#ef4444', 'EXPLOSION');
-                break;
+        // 3. New Combat Logic: Attrition for units orbiting the same planet
+        // For each planet, if multiple owners have units, they trade damage.
+        prev.planets.forEach(p => {
+          const unitsAtPlanet = updatedUnits.filter(u => u.planetId === p.id);
+          const ownersPresent = Array.from(new Set(unitsAtPlanet.map(u => u.owner)));
+          
+          if (ownersPresent.length > 1) {
+            // Calculate how many units each owner kills
+            ownersPresent.forEach(attackerOwner => {
+              const attackers = unitsAtPlanet.filter(u => u.owner === attackerOwner);
+              const potentialTargets = unitsAtPlanet.filter(u => u.owner !== attackerOwner && !toRemove.has(u.id));
+              
+              if (attackers.length > 0 && potentialTargets.length > 0) {
+                const killPotential = attackers.length * COMBAT_CHANCE_PER_SEC * dt;
+                const accKey = `${p.id}_${attackerOwner}_kills`;
+                combatAccumulatorRef.current[accKey] = (combatAccumulatorRef.current[accKey] || 0) + killPotential;
+                
+                let numToKill = Math.floor(combatAccumulatorRef.current[accKey]);
+                if (numToKill > 0) {
+                  combatAccumulatorRef.current[accKey] -= numToKill;
+                  // Actually kill the units
+                  for (let k = 0; k < numToKill; k++) {
+                    if (potentialTargets.length > 0) {
+                      const targetIndex = Math.floor(Math.random() * potentialTargets.length);
+                      const target = potentialTargets.splice(targetIndex, 1)[0];
+                      toRemove.add(target.id);
+                      spawnVisualEffect(target.position, target.owner === 'PLAYER' ? '#3b82f6' : target.owner === 'ENEMY' ? '#ef4444' : '#94a3b8', 'EXPLOSION');
+                    }
+                  }
+                }
               }
-            }
+            });
           }
         });
 
+        // 4. Planet Capture Logic
         const nextPlanets = prev.planets.map(p => {
           const invaders = updatedUnits.filter(u => u.planetId === p.id && u.owner !== p.owner && !toRemove.has(u.id));
           const residents = updatedUnits.filter(u => u.planetId === p.id && u.owner === p.owner && !toRemove.has(u.id));
-          const captureReq = p.owner === 'NEUTRAL' ? 3 : 10;
+          
+          // Capture threshold: if residents are wiped out and enough invaders are present
+          const captureReq = p.owner === 'NEUTRAL' ? 3 : 5; 
           if ((p.owner === 'NEUTRAL' || residents.length === 0) && invaders.length > captureReq) {
             const counts: Record<string, number> = {};
             invaders.forEach(inv => counts[inv.owner] = (counts[inv.owner] || 0) + 1);
             const winnerArr = Object.entries(counts).sort((a,b) => b[1] - a[1]);
             if (winnerArr.length > 0) {
               const newOwner = winnerArr[0][0] as Owner;
+              // Conversion: remaining units at the planet change ownership
               updatedUnits.forEach(unit => { 
-                if (unit.planetId === p.id && !toRemove.has(unit.id)) unit.owner = newOwner; 
+                if (unit.planetId === p.id && !toRemove.has(unit.id)) {
+                  unit.owner = newOwner;
+                  // Reset orbit if captured to prevent immediate fighting if logic changes
+                }
               });
               return { ...p, owner: newOwner, color: newOwner === 'PLAYER' ? '#3b82f6' : '#ef4444' };
             }
@@ -294,6 +319,7 @@ export default function App() {
           return p;
         });
 
+        // 5. Victory/Defeat Check
         const playerActive = nextPlanets.some(p => p.owner === 'PLAYER') || updatedUnits.some(u => u.owner === 'PLAYER');
         const enemyActive = nextPlanets.some(p => p.owner === 'ENEMY') || updatedUnits.some(u => u.owner === 'ENEMY');
 
